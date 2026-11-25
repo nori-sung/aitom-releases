@@ -3,14 +3,22 @@
 # Files fetched with curl.exe carry no "downloaded from the internet" mark, so SmartScreen does not stop the installer.
 # It runs through iex in the user's own PowerShell: `return`, never `exit` (that would close their window).
 & {
+  trap {
+    Write-Host "설치하지 못했습니다: $($_.Exception.Message) (install.ps1 $($_.InvocationInfo.ScriptLineNumber)번째 줄)" -ForegroundColor Red
+    return
+  }
   $ErrorActionPreference = 'Stop'
   $ProgressPreference = 'SilentlyContinue'
   $repo = 'nori-sung/aitom-releases'
   function Say([string]$m) { Write-Host $m }
   function Fail([string]$m) { Write-Host $m -ForegroundColor Red }
 
-  $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()) {
-    'X64' { 'x64' }
+  # the chip: .NET's answer, or Windows' own variables where that property is missing (it then reads as empty);
+  # PROCESSOR_ARCHITEW6432 is the real one when this PowerShell runs as 32-bit
+  try { $os = "$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" } catch { $os = '' }
+  if (-not $os) { $os = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE } }
+  $arch = switch ($os) {
+    { $_ -in 'X64', 'AMD64' } { 'x64' }
     'Arm64' { 'arm64' }
     default { $null }
   }
@@ -40,7 +48,7 @@
     Say "AItom $version 다운로드 중..."
     & curl.exe -fL --progress-bar -o $file $asset.browser_download_url
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $file)) { return Fail 'AItom을 다운로드할 수 없습니다.' }
-    if ((Get-FileHash -Algorithm SHA256 -Path $file).Hash -ne $sha.ToUpperInvariant()) { return Fail '다운로드한 파일이 릴리스의 체크섬과 일치하지 않습니다.' }
+    if ((Get-FileHash -Algorithm SHA256 -Path $file).Hash -ne $sha) { return Fail '다운로드한 파일이 릴리스의 체크섬과 일치하지 않습니다.' }
 
     Say '설치 중...'
     # per user, into the folder of an earlier install if there is one (electron-builder NSIS), shortcuts included
